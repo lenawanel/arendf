@@ -1,0 +1,46 @@
+open :: (pathname: str, flags: i32) -> i32 extern; 
+lseek :: (fd: i32, offset: isize, whence: i32) -> isize extern;
+mmap :: (addr: ^any, length: usize, prot: i32, flags: i32, fd: i32, offset: isize) -> ^any extern;
+munmap :: (addr: ^any, len: usize) -> i32 extern;
+close :: (fd: i32) -> i32 extern;
+write :: (fd: u32, buf: ^u8, count: usize) -> isize extern;
+realloc :: (ptr: ^any, size: usize) -> ^mut any extern;
+
+core :: mod "core";
+libc :: core.libc;
+
+read_u32 :: (buf: [] u8, at: usize) -> u32 {
+	num : u32 = 0;
+	num = num | { buf[at + 0] as u32 };
+	num = num | { buf[at + 1] as u32 << 8 };
+	num = num | { buf[at + 2] as u32 << 16 };
+	num = num | { buf[at + 3] as u32 << 24 };
+	num
+}
+
+read_u32_big_endian :: (buf: [] u8, at: usize) -> u32 {
+	num : u32 = 0;
+	num = num | { buf[at + 0] as u32 << 24};
+	num = num | { buf[at + 1] as u32 << 16 };
+	num = num | { buf[at + 2] as u32 << 8 };
+	num = num | { buf[at + 3] as u32 << 0 };
+	num
+}
+
+assert :: (cond: bool) {
+	if !cond {
+		libc.exit(1);
+	}
+}
+
+construct_u8slice :: (ptr: ^u8, len: usize) -> [] u8 {
+	raw   :: _Raw_Slice { len:  len, ptr: ptr };
+	slice :: {^raw as ^any as ^[] u8}^;
+	slice
+}
+
+_Raw_Slice :: struct {
+    len: usize,
+    ptr: ^any,
+};
+

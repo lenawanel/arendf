@@ -1,0 +1,149 @@
+
+core :: mod "core";
+util :: import "util.capy";
+zlib :: import "zlib.capy";
+vec :: import "vec.capy";
+Vec :: vec.Vec;
+
+check_magic :: (buf: [] u8) -> bool {
+    magic_nr :: [8] u8 { 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a };
+    idx : usize = 0;
+    magic : bool = true;
+    while idx < 8 {
+        magic = magic && { buf[idx] == magic_nr[idx] };
+        idx = idx + 1;
+    }
+    magic
+}
+
+decode :: (buf: [] u8)  {
+    // TODO: assert
+    check_magic(buf);
+    iter := HeadersIter {
+        png_data: buf,
+        curr_header: 8,
+    };
+    ihdr :: parse_ihdr(^iter);
+    core.println(ihdr);
+
+    idat := vec.new();
+    defer vec.dealloc(idat);
+
+    while next_section(^mut iter) {
+        type :: curr_type_ref(^iter);
+        print_type(^type);
+        if at_idat(^iter) {
+            data :: curr_data(^iter);
+            vec.append(^mut idat, data);
+        }
+    }
+    ucmp_data :: zlib.uncompress_slice(idat.buf);
+    defer core.libc.free(ucmp_data.ptr);
+
+    // core.println(ucmp_data);
+    idx := 0;
+    scan_line_length :: ihdr.width * 4 + 1;
+    while idx < ucmp_data.len {
+        if idx & 7 == 0 {
+            pidx := 1;
+            last_pix := 0;
+            while pidx < scan_line_length {
+                curr_pix :: last_pix + ucmp_data[idx + pidx];
+                if {pidx + 11} % 12 == 0 {
+                    if curr_pix == 0 {
+                        core.print(" ");
+                    } else {
+                        core.print("=");
+                    }
+                }
+                pidx = pidx + 4;
+                last_pix = curr_pix;
+            }
+            core.println("");
+        }
+        util.assert(ucmp_data[idx] == 1);
+        idx = idx + scan_line_length;
+    }
+}
+
+HeadersIter :: struct {
+    png_data: [] u8,
+    curr_header: usize,
+};
+
+cur_len :: (iter: ^HeadersIter) -> usize {
+    util.read_u32_big_endian(iter.png_data, iter.curr_header) as usize
+}
+
+next_section :: (iter: ^mut HeadersIter) -> bool {
+    len :: cur_len(iter); 
+    next_chunk :: iter.curr_header + 12 + len;
+    
+    if iter.png_data.len > next_chunk {
+        iter.curr_header = next_chunk;
+        true
+    } else {
+        false
+    }
+}
+
+curr_type_ref :: (iter: ^HeadersIter) -> ChunkTypeRef {
+    // TODO: invalid pngs can cause 8byte OOB read here
+    loc : ^u8 : core.ptr.const_offset(iter.png_data.ptr, iter.curr_header + 4) as ^u8;
+    
+    ChunkTypeRef {
+        loc: loc,
+    }
+}
+
+curr_type :: (iter: ^HeadersIter) -> u32 {
+    util.read_u32(iter.png_data, iter.curr_header + 4)
+}
+
+ChunkTypeRef :: struct {
+    loc: ^u8,
+};
+
+print_type :: (type: ^ChunkTypeRef) {
+    util.write(1, type.loc, 4);
+    core.println("");
+}
+
+at_ihdr :: (iter: ^HeadersIter) -> bool {
+    curr_type(iter) == 0x52444849
+}
+
+parse_ihdr :: (iter: ^HeadersIter) -> IHDR {
+    util.assert(at_ihdr(iter));
+    data_idx :: iter.curr_header + 8;
+    IHDR {
+        width:             util.read_u32_big_endian(iter.png_data, data_idx),
+        height:            util.read_u32_big_endian(iter.png_data, data_idx + 4),
+        bit_depth:         iter.png_data[data_idx + 8],
+        color_type:        iter.png_data[data_idx + 9],
+        compression_type:  iter.png_data[data_idx + 10],
+        filter_method:     iter.png_data[data_idx + 11],
+        inter_lace_methog: iter.png_data[data_idx + 12],
+    }
+}
+
+IHDR :: struct {
+    width:             u32,
+    height:            u32,
+    bit_depth:         u8,
+    color_type:        u8,
+    compression_type:  u8,
+    filter_method:     u8,
+    inter_lace_methog: u8
+};
+
+at_idat :: (iter: ^HeadersIter) -> bool {
+    curr_type(iter) == 0x54414449
+}
+
+curr_data :: (iter: ^HeadersIter) -> [] u8 {
+    data : [] u8 = iter.png_data;
+    data.ptr = core.ptr.const_offset(data.ptr, iter.curr_header + 8) as ^u8;
+    data.len = cur_len(iter);
+    data
+}
