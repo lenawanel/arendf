@@ -1,0 +1,107 @@
+core :: mod "core";
+strings :: core.strings;
+util :: import "util.capy";
+vec :: import "vec.capy";
+ioctl :: (fd: i32, request: i32, dest: ^mut _OS_winsize) -> i32 extern;
+
+
+_OS_winsize :: struct {
+	ws_row:    u16,
+	ws_col:    u16,
+	ws_xpixel: u16,
+	ws_ypixel: u16,
+};
+
+WinSize :: struct {
+	rows: u16,
+	cols: u16
+};
+
+
+get_screen_size :: () -> WinSize {
+	ws := _OS_winsize {
+		ws_row:    0,
+		ws_col:    0,
+		ws_xpixel: 0,
+		ws_ypixel: 0,
+	};
+
+	term_fd :: util.open("/dev/tty", 2);
+	util.assert(term_fd > 0, "opening /dev/tty has to succeed");
+	util.assert(ioctl(term_fd, 21523, ^mut ws) >= 0, "ioctl /dev/tty must succeed");
+	util.close(term_fd);
+
+	WinSize {
+		rows: ws.ws_row,
+		cols: ws.ws_col,
+	} 
+}
+
+get_texel_ratio :: (rgb_buf: ^vec.RGBbuf) -> TexelStride {
+	winsize :: get_screen_size();
+	min_stride(winsize, rgb_buf.dims)
+}
+
+min_stride :: (termdims: WinSize, tex_dims: vec.RGBDims) -> TexelStride {
+	if { tex_dims.x as f64 /  termdims.cols as f64 } >
+			{ tex_dims.y as f64 / {  termdims.rows as f64 / 3.4 } } 
+			{
+		TexelStride {
+			x: tex_dims.x as f64 / termdims.rows as f64 ,
+			y: tex_dims.y as f64 / { termdims.rows as f64 / 3.4 },
+		}
+	} else {
+		TexelStride {
+			x: tex_dims.x as f64 / termdims.cols as f64,
+			y: tex_dims.y as f64 / { termdims.cols as f64 / 3.4 },
+		}
+	}
+}
+
+TexelStride :: struct {
+	x: f64, 
+	y: f64
+};
+
+render :: (rgb_buf: ^vec.RGBbuf) {
+	cur_line := 0.0;
+	rendered := strings.make_string_with_capacity(rgb_buf.inner.buf.len / 3);
+	strings.add_str(^mut rendered, "\e[1;1H\e[2J");
+	tex_ratio := get_texel_ratio(rgb_buf);
+	core.println(tex_ratio);
+	core.println(rgb_buf.dims.x);
+	core.println(rgb_buf.inner.buf.len);
+
+
+	i := 0;
+	while cur_line < rgb_buf.dims.y {
+		cur_idx := 0.0;
+		while cur_idx as u32 < rgb_buf.dims.x - 1 {
+			if vec.threshold(
+				vec.get_rgb(
+							rgb_buf, 
+							{
+								cur_idx as usize + 
+								{
+									cur_line as usize * 
+									rgb_buf.dims.x
+								} 
+							} as usize
+						   ), 
+				300,
+			   ) {
+				strings.add_char(^mut rendered, 'A');
+			} else { 
+				strings.add_char(^mut rendered, ' ');
+			}
+			cur_idx = cur_idx + tex_ratio.x;
+		}
+		strings.add_char(^mut rendered, '\n');
+		cur_line = cur_line + tex_ratio.y;
+
+		i = i + 1;		
+	}
+	core.println(i);
+	strings.print_string(^rendered);
+	core.libc.free(rendered.buf);
+}

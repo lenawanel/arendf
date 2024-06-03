@@ -2,23 +2,20 @@ core :: mod "core";
 libc :: core.libc;
 util :: import "util.capy";
 
-uncompress2 :: (dest: ^mut u8, destLen: ^mut usize, source: ^u8, sourceLen: ^mut usize) -> i32 extern;
+uncompress :: (dest: ^mut u8, destLen: ^mut usize, source: ^u8, sourceLen: usize) -> i32 extern;
 
 uncompress_slice :: (compressed_data: [] u8) -> [] u8 {
 	dest_len := compressed_data.len * 0x100;
 	buf := libc.malloc(dest_len);
 	
 	source_len := compressed_data.len;
-	core.println(uncompress2(buf as ^mut u8, ^mut dest_len, compressed_data.ptr, ^mut source_len)); 
 
-	// while source_len < compressed_data.len {	
-	//	buf = util.realloc(buf , dest_len * 2);
-	//	dest_len = dest_len * 2;
-	//	source_len = compressed_data.len;
-	//	uncompress2(buf as ^mut u8, ^mut dest_len, compressed_data.ptr, ^mut source_len); 
-	// }
+	while uncompress(buf as ^mut u8, ^mut dest_len, compressed_data.ptr, source_len) == -4 {
+		buf = util.realloc(buf, dest_len * 2);
+		dest_len = dest_len * 2;
+	}; 
+
 	buf = util.realloc(buf , dest_len);
-
 	
 	util.construct_u8slice(buf as ^mut u8, dest_len)
 }

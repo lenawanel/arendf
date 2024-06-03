@@ -1,11 +1,12 @@
 core :: mod "core";
 png :: import "png.capy";
 util :: import "util.capy";
+term :: import "term.capy";
+vec :: import "vec.capy";
 
 main :: () -> i32 {
 	png_file :: util.open("img.png", 0);
 	size :: util.lseek(png_file, 0, 2);
-	core.println(size);
 
 	util.lseek(png_file, 0, 0);
 	png_ptr :: util.mmap(core.ptr.null(), size as usize, 1, 2, png_file, 0);
@@ -13,7 +14,12 @@ main :: () -> i32 {
 
 	util.close(png_file);
 
-	png.decode(util.construct_u8slice(png_ptr as ^u8, size as usize));
+	texture :: png.decode(util.construct_u8slice(png_ptr as ^u8, size as usize));
+	defer vec.dealloc(texture.inner);
+
+	term.render(^texture);
+	// core.println(texture);
+	// util.sleep(5);
 
 	0
 }

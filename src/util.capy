@@ -5,6 +5,7 @@ munmap :: (addr: ^any, len: usize) -> i32 extern;
 close :: (fd: i32) -> i32 extern;
 write :: (fd: u32, buf: ^u8, count: usize) -> isize extern;
 realloc :: (ptr: ^any, size: usize) -> ^mut any extern;
+sleep :: (time: u16) -> u16 extern;
 
 core :: mod "core";
 libc :: core.libc;
@@ -27,8 +28,11 @@ read_u32_big_endian :: (buf: [] u8, at: usize) -> u32 {
 	num
 }
 
-assert :: (cond: bool) {
+assert :: (cond: bool, fail_info: str) {
 	if !cond {
+		core.print("assertion: ");
+		core.print(fail_info);
+		core.println(" failed");
 		libc.exit(1);
 	}
 }

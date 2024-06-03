@@ -33,10 +33,72 @@ grow :: (vec: ^mut Vec) {
     vec.cap = vec.cap * 8;
 }
 
+push :: (vec: ^mut Vec, val: u8) {
+    if vec.buf.len == vec.cap {
+        grow(vec);
+    }
+    vec.buf.len = vec.buf.len + 1;
+    vec.buf[vec.buf.len - 1] = val;
+}
+
 dealloc :: (vec: Vec) {
     core.libc.free(vec.buf.ptr);
 }
 
 as_slice :: (vec: ^Vec) -> [] u8 {
     vec.buf
+}
+
+RGBDims :: struct {
+    x: u32,
+    y: u32
+};
+
+RGBbuf :: struct {
+    inner: Vec,
+    dims: RGBDims,
+};
+
+new_rgb_buf :: (width: u32, height: u32) -> RGBbuf {
+    size :: width * height; 
+    alloc :: core.libc.malloc(size * 3) as ^u8;
+    RGBbuf {
+        inner: Vec {
+            buf: util.construct_u8slice(alloc, 0),
+            cap: size * 3,
+        },
+        dims: RGBDims {
+            x: width,
+            y: height,
+        }
+    }
+}
+
+
+add :: (x:  [3] u8, y:  [3] u8) ->  [3] u8 {
+    [3] u8 { 
+            x[0] + y[0], 
+            x[1] + y[1], 
+            x[2] + y[2] 
+        }
+}
+
+push_rgb :: (buf: ^mut RGBbuf, rgb: [3] u8) {
+    append(^mut buf.inner, rgb);
+}
+
+get_rgb :: (buf: ^RGBbuf, idx: usize) -> [3] u8 {
+    [3] u8 { 
+        buf.inner.buf [{idx * 3}],  
+        buf.inner.buf [{idx * 3} + 1], 
+        buf.inner.buf [{idx * 3} + 2] 
+    }
+}
+
+threshold :: (col:  [3] u8, val: u16) -> bool {
+    {
+        {col[0] as u16} + 
+        {col[1] as u16} + 
+        {col[2] as u16}
+    } > val 
 }

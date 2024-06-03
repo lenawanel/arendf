@@ -15,9 +15,8 @@ check_magic :: (buf: [] u8) -> bool {
     magic
 }
 
-decode :: (buf: [] u8)  {
-    // TODO: assert
-    check_magic(buf);
+decode :: (buf: [] u8) -> vec.RGBbuf {
+    util.assert(check_magic(buf), "file must start with the magic number");
     iter := ChunksIter {
         png_data: buf,
         curr_chunk: 8,
@@ -29,40 +28,39 @@ decode :: (buf: [] u8)  {
     defer vec.dealloc(idat);
 
     while next_section(^mut iter) {
-        type :: curr_type_ref(^iter);
-        print_type(^type);
         if at_idat(^iter) {
             data :: curr_data(^iter);
             vec.append(^mut idat, data);
         }
     }
+    util.assert(at_iend(^iter), "last chunk must be a IEND");
     ucmp_data :: zlib.uncompress_slice(idat.buf);
     defer core.libc.free(ucmp_data.ptr);
 
-    // core.println(ucmp_data);
     idx := 0;
     scan_line_length :: ihdr.width * 4 + 1;
+    rgb_buf := vec.new_rgb_buf (ihdr.width, ihdr.height);
+
     while idx < ucmp_data.len {
-        if idx & 7 == 0 {
-            pidx := 1;
-            last_pix := 0;
-            while pidx < scan_line_length {
-                curr_pix :: last_pix + ucmp_data[idx + pidx];
-                if {pidx + 11} % 12 == 0 {
-                    if curr_pix == 0 {
-                        core.print(" ");
-                    } else {
-                        core.print("A");
-                    }
-                }
-                pidx = pidx + 4;
-                last_pix = curr_pix;
-            }
-            core.println("");
+        pidx := 1;
+        curr_pix := [3] u8 {0, 0, 0};
+        while pidx < scan_line_length {
+            curr_pix = vec.add(curr_pix, 
+                                [3] u8 {
+                                    ucmp_data[idx + pidx],
+                                    ucmp_data[idx + pidx + 1],
+                                    ucmp_data[idx + pidx + 2],
+                                }
+                            );
+            
+            vec.push_rgb(^mut rgb_buf, curr_pix as [3] u8);
+            pidx = pidx + 4;
         }
-        util.assert(ucmp_data[idx] == 1);
+        util.assert(ucmp_data[idx] == 1, "filter type must be 1");
         idx = idx + scan_line_length;
     }
+
+    rgb_buf
 }
 
 ChunksIter :: struct {
@@ -71,7 +69,9 @@ ChunksIter :: struct {
 };
 
 cur_len :: (iter: ^ChunksIter) -> usize {
-    util.read_u32_big_endian(iter.png_data, iter.curr_chunk) as usize
+    len :: util.read_u32_big_endian(iter.png_data, iter.curr_chunk) as usize;
+    util.assert(len + iter.curr_chunk < iter.png_data.len, "all chunks must have a valid length");
+    len
 }
 
 next_section :: (iter: ^mut ChunksIter) -> bool {
@@ -113,7 +113,7 @@ at_ihdr :: (iter: ^ChunksIter) -> bool {
 }
 
 parse_ihdr :: (iter: ^ChunksIter) -> IHDR {
-    util.assert(at_ihdr(iter));
+    util.assert(at_ihdr(iter), "file has to begin with an ihdr chunk");
     data_idx :: iter.curr_chunk + 8;
     IHDR {
         width:             util.read_u32_big_endian(iter.png_data, data_idx),
@@ -138,6 +138,10 @@ IHDR :: struct {
 
 at_idat :: (iter: ^ChunksIter) -> bool {
     curr_type(iter) == 0x54414449
+}
+
+at_iend :: (iter: ^ChunksIter) -> bool {
+    curr_type(iter) == 0x444e4549
 }
 
 curr_data :: (iter: ^ChunksIter) -> [] u8 {
